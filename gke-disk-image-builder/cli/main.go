@@ -16,6 +16,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -69,6 +70,7 @@ func main() {
 	verifyOnly := flag.Bool("verify-only", false, "Only verifies the disk image provided in image-name, and does not generate any image.")
 	k8sManifestsFilepath := flag.String("k8s-manifests-filepath", "", "Specifies the file path where the tool will save the generated Kubernetes VolumeSnapshot and VolumeSnapshotContent manifests.")
 	k8sNamespace := flag.String("k8s-namespace", "default", "Specifies the Kubernetes namespace for the generated VolumeSnapshot manifest.")
+	containerImageFile := flag.String("container-image-file", "", "path to a file listing container images to include in the disk image, one image per line. Blank lines and lines starting with `#` are ignored. Pass `/dev/stdin` to read from standard input. Images from this file are added to any specified via --container-image.")
 
 	flag.Var(&imageLabels, "image-labels", "labels tagged to the disk image. This flag can be specified multiple times. The accepted format is `--image-labels=key=val`.")
 	flag.Var(&containerImages, "container-image", "container image to include in the disk image. This flag can be specified multiple times")
@@ -76,6 +78,14 @@ func main() {
 
 	flag.Parse()
 	ctx := context.Background()
+
+	if *containerImageFile != "" {
+		imagesFromFile, err := readContainerImageFile(*containerImageFile)
+		if err != nil {
+			log.Panicf("invalid argument, container-image-file: %v", err)
+		}
+		containerImages = append(containerImages, imagesFromFile...)
+	}
 
 	td, err := time.ParseDuration(*timeout)
 	if err != nil {
@@ -179,6 +189,32 @@ func main() {
 		}
 		fmt.Printf("Kubernetes manifests generated at: %s\n", req.K8sManifestsFilepath)
 	}
+}
+
+// readContainerImageFile reads container image references from the file at the
+// given path, one image per line. Surrounding whitespace is trimmed; blank lines
+// and lines starting with `#` (comments) are ignored. Passing "/dev/stdin" reads
+// from standard input, per Unix convention.
+func readContainerImageFile(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var images []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		images = append(images, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return images, nil
 }
 
 // regionForZone returns the region for a given zone (e.g. "us-central1-c" -> "us-central1").

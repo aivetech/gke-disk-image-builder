@@ -59,6 +59,7 @@ Flag                | Required | Default | Description
 *--zone*            | Yes      | nil     | Zone where the resources will be used to create the image creator resources
 *--gcs-path*        | No       | nil     | GCS path prefix to dump the logs and upload the startup script. If omitted, a `<project>-daisy-bkt` bucket is auto-created (or reused) in the project.
 *--container-image* | Yes      | nil     | Container image with tag to include in the disk image. Tag are required for image like `latest` in this example: `docker.io/library/python:latest`. This flag can be specified multiple times
+*--container-image-file* | No  | nil     | Path to a file listing container images to include in the disk image, one image per line. Blank lines and lines starting with `#` are ignored. Pass `/dev/stdin` to read from standard input. Images from this file are added to any specified via *--container-image*.
 *--gcp-oauth*       | No       | nil     | Path to GCP service account credential file
 *--disk-size-gb*    | No       | 10      | Size of a disk that will host the unpacked images
 *--image-pull-auth* | No       | 'None'  | Auth mechanism to pull the container image, valid values: [None, ServiceAccountToken, RegistryCredentials]. None means that the images are publically available and no authentication is required to pull them. ServiceAccountToken means the service account oauth token will be used to pull the images. RegistryCredentials means the `user:password` string provided via *--registry-credentials* will be used to pull the images. For more information refer to https://cloud.google.com/compute/docs/access/authenticate-workloads#applications
@@ -181,6 +182,38 @@ go run ./cli \
     --gcs-path=gs://$GCS_PATH/ \
     --container-image=docker.io/library/python:latest \
     --container-image=docker.io/library/nginx:latest
+```
+
+### Pull a list of images from a file
+
+Instead of repeating `--container-image`, you can list the images in a file, one
+per line. Blank lines and lines starting with `#` are ignored, and the images
+are added to any passed via `--container-image`.
+
+```shell
+cat > images.txt <<EOF
+# core services
+docker.io/library/python:latest
+docker.io/library/nginx:latest
+EOF
+
+go run ./cli \
+    --project-name=$PROJECT_NAME \
+    --image-name=$IMAGE_NAME \
+    --zone=$ZONE \
+    --gcs-path=gs://$GCS_PATH/ \
+    --container-image-file=images.txt
+```
+
+Per Unix convention, pass `/dev/stdin` to read the list from standard input:
+
+```shell
+generate-image-list | go run ./cli \
+    --project-name=$PROJECT_NAME \
+    --image-name=$IMAGE_NAME \
+    --zone=$ZONE \
+    --gcs-path=gs://$GCS_PATH/ \
+    --container-image-file=/dev/stdin
 ```
 
 ### Pull a large image from a public registry
