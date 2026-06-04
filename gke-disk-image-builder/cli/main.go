@@ -54,13 +54,14 @@ func main() {
 	imageFamilyName := flag.String("image-family-name", "secondary-disk-image", "name of the image family associated with the created disk image")
 	jobName := flag.String("job-name", "secondary-disk-image", "name of the workflow job; no more than 50 characters")
 	zone := flag.String("zone", "", "zone where the resources will be used to create the image creator resources")
-	gcsPath := flag.String("gcs-path", "", "gcs location to dump the logs")
+	gcsPath := flag.String("gcs-path", "", "gcs location to dump the logs and upload the startup script. Optional: if left empty, a `<project>-daisy-bkt` bucket is auto-created/reused in the project.")
 	machineType := flag.String("machine-type", "n2-standard-16", "GCE instance machine type to generate the disk image")
 	serviceAccount := flag.String("service-account", "default", "Service Account email assigned to the GCE instance used for creating the disk image.")
 	diskType := flag.String("disk-type", "pd-ssd", "disk type to generate the disk image")
 	diskSizeGb := flag.Int64("disk-size-gb", 60, "disk size to unpack container images")
 	gcpOAuth := flag.String("gcp-oauth", "", "path to GCP service account credential file")
-	imagePullAuth := flag.String("image-pull-auth", "None", "auth mechanism to pull the container image, valid values: [None, ServiceAccountToken].\nNone means that the images are publically available and no authentication is required to pull them.\nServiceAccountToken means the service account oauth token will be used to pull the images.\nFor more information refer to https://cloud.google.com/compute/docs/access/authenticate-workloads#applications")
+	imagePullAuth := flag.String("image-pull-auth", "None", "auth mechanism to pull the container image, valid values: [None, ServiceAccountToken, RegistryCredentials].\nNone means that the images are publically available and no authentication is required to pull them.\nServiceAccountToken means the service account oauth token will be used to pull the images.\nRegistryCredentials means the user:password string provided via --registry-credentials will be used to pull the images.\nFor more information refer to https://cloud.google.com/compute/docs/access/authenticate-workloads#applications")
+	registryCredentials := flag.String("registry-credentials", "", "user:password credential passed to `ctr image pull --user` when --image-pull-auth=RegistryCredentials.\nThis value is embedded in the startup script uploaded to --gcs-path, so restrict access to that bucket.")
 	timeout := flag.String("timeout", "20m", "Default timout for each step, defaults to 20m")
 	network := flag.String("network", "default", "VPC network to be used by GCE resources used for disk image creation.")
 	subnet := flag.String("subnet", "default", "subnet to be used by GCE resources used for disk image creation.")
@@ -121,8 +122,17 @@ func main() {
 		auth = builder.None
 	case "ServiceAccountToken":
 		auth = builder.ServiceAccountToken
+	case "RegistryCredentials":
+		auth = builder.RegistryCredentials
 	default:
-		log.Panicf("Please specify a valid value for the flag --image-pull-auth, valid values are [None, ServiceAccountToken]")
+		log.Panicf("Please specify a valid value for the flag --image-pull-auth, valid values are [None, ServiceAccountToken, RegistryCredentials]")
+	}
+
+	if auth == builder.RegistryCredentials && *registryCredentials == "" {
+		log.Panicf("--registry-credentials must be set to a user:password string when --image-pull-auth=RegistryCredentials")
+	}
+	if *registryCredentials != "" && auth != builder.RegistryCredentials {
+		log.Panicf("--registry-credentials is only valid with --image-pull-auth=RegistryCredentials")
 	}
 
 	req := builder.Request{
@@ -143,6 +153,7 @@ func main() {
 		StorageLocations:      storageLocations,
 		Timeout:               td,
 		ImagePullAuth:         auth,
+		RegistryCredentials:   *registryCredentials,
 		ImageLabels:           imageLabels,
 		StoreSnapshotCheckSum: *storeSnapshotCheckSum,
 		K8sManifestsFilepath:  *k8sManifestsFilepath,

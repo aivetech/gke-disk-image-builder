@@ -61,6 +61,23 @@ spec:
 	}
 }
 
+func TestBashSingleQuote(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "''"},
+		{"user:password", "'user:password'"},
+		{"user:p@ss word", "'user:p@ss word'"},
+		{"a'b", `'a'\''b'`},
+	}
+	for _, c := range cases {
+		if got := bashSingleQuote(c.in); got != c.want {
+			t.Errorf("bashSingleQuote(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestWriteK8sManifests_ParentDirDoesNotExist(t *testing.T) {
 	req := Request{
 		ImageName:            "test-image",

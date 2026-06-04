@@ -44,6 +44,11 @@ const (
 	// ServiceAccountToken means that the script must use the oauth access token of the service account.
 	// For more information refer to https://cloud.google.com/compute/docs/access/authenticate-workloads#applications
 	ServiceAccountToken ImagePullAuthMechanism = "ServiceAccountToken"
+	// RegistryCredentials means the script will pull images using a static
+	// user:password credential supplied via Request.RegistryCredentials, passed
+	// to `ctr image pull --user`. Use this for private registries that do not
+	// accept a GCP service account OAuth token (e.g. Docker Hub, Quay, Harbor).
+	RegistryCredentials ImagePullAuthMechanism = "RegistryCredentials"
 )
 
 // Request contains the required input for the disk image generation.
@@ -64,6 +69,9 @@ type Request struct {
 	StorageLocations      []string
 	Timeout               time.Duration
 	ImagePullAuth         ImagePullAuthMechanism
+	// RegistryCredentials is a user:password string passed to `ctr image pull --user`.
+	// It is only used when ImagePullAuth == RegistryCredentials.
+	RegistryCredentials string
 	ImageLabels           []string
 	ServiceAccount        string
 	StoreSnapshotCheckSum bool
@@ -114,6 +122,12 @@ spec:
 	return os.WriteFile(req.K8sManifestsFilepath, []byte(manifest), 0644)
 }
 
+// bashSingleQuote wraps s in single quotes, escaping any embedded single quotes,
+// so it is safe to embed as a literal in the generated startup script.
+func bashSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func buildDiskStartupScript(req Request) (*os.File, error) {
 	concreteStartupScript, err := os.CreateTemp("", fmt.Sprintf("%s-startup-script-", req.JobName))
 	if err != nil {
@@ -128,7 +142,12 @@ func buildDiskStartupScript(req Request) (*os.File, error) {
 		return nil, fmt.Errorf("unable to create the concrete startup file suceesfully, err: %v", err)
 	}
 	images := strings.Join(req.ContainerImages, " ")
-	flags := fmt.Sprintf("\n\nunpack %t %s %s", req.StoreSnapshotCheckSum, req.ImagePullAuth, images)
+	// Expose the (optional) registry credential as a shell global the startup
+	// script's pull_images function reads. It is emitted unconditionally (empty
+	// when unused) so the positional contract of the unpack call below is
+	// unaffected by the variable-length image list.
+	creds := fmt.Sprintf("\nREGISTRY_CREDENTIALS=%s", bashSingleQuote(req.RegistryCredentials))
+	flags := fmt.Sprintf("%s\n\nunpack %t %s %s", creds, req.StoreSnapshotCheckSum, req.ImagePullAuth, images)
 	if _, err = concreteStartupScript.Write([]byte(flags)); err != nil {
 		return nil, fmt.Errorf("umable to create concrete startup script: %v", err)
 	}

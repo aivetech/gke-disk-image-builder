@@ -87,8 +87,13 @@ function pull_images() {
       sudo ctr -n k8s.io image pull --hosts-dir "/etc/containerd/certs.d" $param
     elif [ "$OAUTH_MECHANISM" == "serviceaccounttoken" ]; then
       sudo ctr -n k8s.io image pull --hosts-dir "/etc/containerd/certs.d" --user "oauth2accesstoken:$ACCESS_TOKEN" $param
+    elif [ "$OAUTH_MECHANISM" == "registrycredentials" ]; then
+      # Pull using a static user:password credential provided by the caller.
+      # REGISTRY_CREDENTIALS is set as a global at the top of the generated
+      # startup script; do not echo it.
+      sudo ctr -n k8s.io image pull --hosts-dir "/etc/containerd/certs.d" --user "$REGISTRY_CREDENTIALS" $param
     else
-      echo "Unknown OAuth mechanism, expected 'None' or 'ServiceAccountToken' but got '$OAUTH_MECHANISM'".
+      echo "Unknown OAuth mechanism, expected 'None', 'ServiceAccountToken' or 'RegistryCredentials' but got '$OAUTH_MECHANISM'".
       exit 1
     fi
     if [ $? -ne 0 ]; then
